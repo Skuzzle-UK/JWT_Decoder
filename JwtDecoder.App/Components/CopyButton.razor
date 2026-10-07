@@ -1,0 +1,26 @@
+@inject ClipboardService Clipboard
+
+<button class="small-button @(copied ? "copied" : null)" disabled="@(GetText() is null)" @onclick="CopyAsync">
+    @(copied ? "Copied ✓" : Label)
+</button>
+
+@code {
+    [Parameter, EditorRequired] public Func<string?> GetText { get; set; } = () => null;
+    [Parameter] public string Label { get; set; } = "Copy";
+
+    private bool copied;
+
+    private async Task CopyAsync()
+    {
+        string? text = GetText();
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        await Clipboard.SetTextAsync(text);
+        copied = true;
+        await Task.Delay(1500);
+        copied = false;
+    }
+}

@@ -1,0 +1,166 @@
+@* Syntax-highlighted JSON with hover / tap hints on known claims, timestamps and algorithms,
+   and a copy button on each top-level claim *@
+@using System.Text.Encodings.Web
+@inject ClipboardService Clipboard
+
+@if (root is null)
+{
+    <pre class="json raw">@Json</pre>
+}
+else
+{
+    <div class="json">@RenderRoot()</div>
+}
+
+@code {
+    private static readonly JsonSerializerOptions DisplayJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    [Parameter, EditorRequired] public string Json { get; set; } = string.Empty;
+
+    /// <summary>Current time, so relative times in hints ("in 42m") stay up to date</summary>
+    [Parameter] public DateTimeOffset Now { get; set; }
+
+    /// <summary>Keeps hint ids unique when there's more than one JsonView on the page</summary>
+    [Parameter] public string IdPrefix { get; set; } = string.Empty;
+
+    /// <summary>Id of the hint opened by a click / tap (only one is open across the page)</summary>
+    [Parameter] public string? OpenHint { get; set; }
+    [Parameter] public EventCallback<string?> OpenHintChanged { get; set; }
+
+    private string? parsedJson;
+    private JsonNode? root;
+    private string? copiedId;
+
+    protected override void OnParametersSet()
+    {
+        if (Json == parsedJson)
+        {
+            return;
+        }
+
+        parsedJson = Json;
+        try
+        {
+            root = JsonNode.Parse(Json);
+        }
+        catch (JsonException)
+        {
+            root = null;
+        }
+    }
+
+    private RenderFragment RenderRoot() => __builder =>
+    {
+        if (root is not JsonObject obj || obj.Count == 0)
+        {
+            @RenderValue(string.Empty, root, 0, IdPrefix)
+            return;
+        }
+
+        int index = 0;
+        <div>{</div>
+        foreach (KeyValuePair<string, JsonNode?> property in obj)
+        {
+            string id = $"{IdPrefix}/{property.Key}";
+            bool last = ++index == obj.Count;
+            <div class="prop">@Indent(1)@RenderKey(property.Key, id)<text>: </text>@RenderValue(property.Key, property.Value, 1, id)@(last ? null : ",")<button class="copy-value @(copiedId == id ? "copied" : null)" title="Copy value" @onclick="() => CopyValueAsync(id, property.Value)" @onclick:stopPropagation="true">@(copiedId == id ? "Copied ✓" : "Copy")</button></div>
+        }
+        <div>}</div>
+    };
+
+    private RenderFragment RenderValue(string key, JsonNode? node, int depth, string id) => __builder =>
+    {
+        switch (node)
+        {
+            case JsonObject obj when obj.Count > 0:
+                int propertyIndex = 0;
+                <text>{@("\n")</text>
+                foreach (KeyValuePair<string, JsonNode?> property in obj)
+                {
+                    string childId = $"{id}/{property.Key}";
+                    bool last = ++propertyIndex == obj.Count;
+                    @Indent(depth + 1)@RenderKey(property.Key, childId)<text>: </text>@RenderValue(property.Key, property.Value, depth + 1, childId)@(last ? "\n" : ",\n")
+                }
+                @Indent(depth)<text>}</text>
+                break;
+
+            case JsonArray array when array.Count > 0:
+                <text>[@("\n")</text>
+                for (int i = 0; i < array.Count; i++)
+                {
+                    @Indent(depth + 1)@RenderValue(key, array[i], depth + 1, $"{id}[{i}]")@(i == array.Count - 1 ? "\n" : ",\n")
+                }
+                @Indent(depth)<text>]</text>
+                break;
+
+            case JsonObject:
+                <text>{}</text>
+                break;
+
+            case JsonArray:
+                <text>[]</text>
+                break;
+
+            case JsonValue value:
+                string css = value.GetValueKind() switch
+                {
+                    JsonValueKind.String => "string",
+                    JsonValueKind.Number => "number",
+                    _ => "literal"
+                };
+                string text = value.ToJsonString(DisplayJson);
+                Hint? hint = ClaimHints.ForValue(key, value, Now);
+                if (hint is null)
+                {
+                    <span class="@css">@text</span>
+                }
+                else
+                {
+                    @RenderHint($"{id}:value", text, $"{css} link", hint)
+                }
+                break;
+
+            default:
+                <span class="literal">null</span>
+                break;
+        }
+    };
+
+    private RenderFragment RenderKey(string key, string id) => __builder =>
+    {
+        string text = JsonSerializer.Serialize(key, DisplayJson);
+        Hint? hint = ClaimHints.ForKey(key);
+        if (hint is null)
+        {
+            <span class="key">@text</span>
+        }
+        else
+        {
+            @RenderHint($"{id}:key", text, "key subtle", hint)
+        }
+    };
+
+    private RenderFragment RenderHint(string id, string text, string css, Hint hint) => __builder =>
+    {
+        <span class="hint @css @(hint.IsDanger ? "danger" : null) @(OpenHint == id ? "open" : null)" tabindex="0"
+              @onclick="() => ToggleHintAsync(id)" @onclick:stopPropagation="true">@text<span class="tip" role="tooltip"><strong>@hint.Title</strong><span class="tip-body">@hint.Body</span></span></span>
+    };
+
+    private static string Indent(int depth) => new(' ', depth * 2);
+
+    private Task ToggleHintAsync(string id) => OpenHintChanged.InvokeAsync(OpenHint == id ? null : id);
+
+    private async Task CopyValueAsync(string id, JsonNode? value)
+    {
+        await Clipboard.SetTextAsync(ClaimHints.CopyText(value));
+        copiedId = id;
+        StateHasChanged();
+
+        await Task.Delay(1500);
+        if (copiedId == id)
+        {
+            copiedId = null;
+            StateHasChanged();
+        }
+    }
+}

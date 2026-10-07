@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="456" height="456" viewBox="0 0 456 456" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <clipPath id="disc">
+            <circle cx="214" cy="280" r="68" />
+        </clipPath>
+    </defs>
+
+    <!-- "JWT" drawn with strokes so it doesn't depend on a font -->
+    <g fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 178 116 V 160 Q 178 184 156 184 Q 142 184 136 172" />
+        <path d="M 196 116 L 210 184 L 226 136 L 242 184 L 256 116" />
+        <path d="M 270 116 H 318 M 294 116 V 184" />
+    </g>
+
+    <!-- Disc split into the three token-part colours: header, payload, signature -->
+    <g clip-path="url(#disc)">
+        <rect x="146" y="212" width="46" height="136" fill="#56c4ff" />
+        <rect x="191" y="212" width="46" height="136" fill="#ff9f40" />
+        <rect x="236" y="212" width="46" height="136" fill="#dc82ff" />
+    </g>
+
+    <!-- Padlock -->
+    <path d="M 268 300 V 284 Q 268 260 290 260 Q 312 260 312 284 V 300" fill="none" stroke="#1e1e1e" stroke-width="22" />
+    <path d="M 268 300 V 284 Q 268 260 290 260 Q 312 260 312 284 V 300" fill="none" stroke="#dcdcdc" stroke-width="12" />
+    <rect x="252" y="296" width="76" height="58" rx="8" fill="#dcdcdc" stroke="#1e1e1e" stroke-width="5" />
+    <circle cx="290" cy="320" r="7" fill="#1e1e1e" />
+    <rect x="287" y="322" width="6" height="16" rx="2" fill="#1e1e1e" />
+</svg>

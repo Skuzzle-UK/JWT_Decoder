@@ -1,0 +1,157 @@
+@page "/"
+@implements IDisposable
+@inject ClipboardService Clipboard
+@inject ThemeService Theme
+@inject IJSRuntime JS
+
+<div class="app" style="@accentStyle" @onclick="CloseHint">
+    <header class="topbar">
+        <h1>JWT Decoder</h1>
+        <span class="tagline">Decoded on this device. Nothing is sent anywhere.</span>
+        <div class="theme-switch" role="group" aria-label="Theme">
+            @foreach (ThemeChoice choice in Enum.GetValues<ThemeChoice>())
+            {
+                <button aria-pressed="@(Theme.Choice == choice ? "true" : "false")" @onclick="() => Theme.SetChoice(choice)">@choice</button>
+            }
+        </div>
+    </header>
+
+    <div class="columns">
+        <div class="column">
+            <section class="card">
+                <div class="section-head">
+                    <h2>Encoded token</h2>
+                    <div class="actions">
+                        <button class="small-button" @onclick="PasteAsync">Paste</button>
+                        <button class="small-button" disabled="@(input.Length == 0)" @onclick="Clear">Clear</button>
+                    </div>
+                </div>
+                <TokenInput Value="@input" ValueChanged="OnInputChanged" />
+            </section>
+
+            <SignatureVerification Token="decoded" />
+        </div>
+
+        <div class="column">
+            @if (TokenStatus.Evaluate(decoded, now) is { } status)
+            {
+                <div class="banner @status.Severity.ToString().ToLowerInvariant()">@status.Text</div>
+            }
+
+            @if (decoded.HeaderJson is null)
+            {
+                <section class="card empty-state">
+                    <p>Paste a token to decode it.</p>
+                    <p class="muted">
+                        Hover or tap the <span class="sample-link">underlined values</span> and claim names for details,
+                        such as what an expiry time means in UTC and your local time.
+                    </p>
+                </section>
+            }
+            else
+            {
+                <section class="card">
+                    <div class="section-head">
+                        <h2>Header</h2>
+                        <CopyButton GetText="() => headerJson" />
+                    </div>
+                    <JsonView Json="@(headerJson!)" Now="now" IdPrefix="header" @bind-OpenHint="openHint" />
+                </section>
+
+                <section class="card">
+                    <div class="section-head">
+                        <h2>Payload</h2>
+                        <CopyButton GetText="() => payloadJson" />
+                    </div>
+                    @if (payloadJson is null)
+                    {
+                        <div class="encrypted-note">
+                            <p>This is an encrypted token (JWE).</p>
+                            <p>The payload is encrypted and can only be read by the intended recipient, using its private key or shared secret.</p>
+                            <p>The header above is not encrypted.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <JsonView Json="@payloadJson" Now="now" IdPrefix="payload" @bind-OpenHint="openHint" />
+                    }
+                </section>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string input = string.Empty;
+    private DecodedToken decoded = DecodedToken.Empty;
+    private string? headerJson;
+    private string? payloadJson;
+    private string? openHint;
+    private DateTimeOffset now = DateTimeOffset.UtcNow;
+    private System.Threading.Timer? clock;
+    private readonly string? accentStyle = SystemAccent.GetCssVariables();
+
+    protected override void OnInitialized()
+    {
+        Theme.Changed += OnThemeChanged;
+
+        // Keeps the expiry banner and relative times ("in 42m 10s") current
+        clock = new System.Threading.Timer(_ => InvokeAsync(Tick), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await ApplyThemeAsync();
+        }
+    }
+
+    private void OnThemeChanged() => InvokeAsync(async () =>
+    {
+        await ApplyThemeAsync();
+        StateHasChanged();
+    });
+
+    private ValueTask ApplyThemeAsync() => JS.InvokeVoidAsync("jwtDecoder.setTheme", Theme.Resolved);
+
+    private void Tick()
+    {
+        if (decoded.Kind != TokenKind.Signed)
+        {
+            return;
+        }
+
+        now = DateTimeOffset.UtcNow;
+        StateHasChanged();
+    }
+
+    private void OnInputChanged(string value)
+    {
+        input = value;
+        now = DateTimeOffset.UtcNow;
+        decoded = DecodedToken.Decode(value);
+        headerJson = decoded.HeaderJson is null ? null : JwtParser.FormatJson(decoded.HeaderJson);
+        payloadJson = decoded.PayloadJson is null ? null : JwtParser.FormatJson(decoded.PayloadJson);
+        openHint = null;
+    }
+
+    private async Task PasteAsync()
+    {
+        string? text = await Clipboard.GetTextAsync();
+        if (!string.IsNullOrEmpty(text))
+        {
+            OnInputChanged(text);
+        }
+    }
+
+    private void Clear() => OnInputChanged(string.Empty);
+
+    private void CloseHint() => openHint = null;
+
+    public void Dispose()
+    {
+        Theme.Changed -= OnThemeChanged;
+        clock?.Dispose();
+    }
+}

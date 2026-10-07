@@ -1,0 +1,79 @@
+@* Verifies the token's signature with a secret (HS*) or public key. The key is only held in memory. *@
+
+<section class="card verify">
+    <div class="section-head">
+        <h2>Signature verification <span class="optional">(optional)</span></h2>
+        @if (JwtSignatureVerifier.IsSymmetric(Token.Algorithm))
+        {
+            <label class="toggle">
+                <input type="checkbox" @bind="secretIsBase64Url" />
+                Base64URL encoded
+            </label>
+        }
+    </div>
+    <p class="prompt">@Prompt</p>
+    <textarea class="key-input" rows="5" @bind="key" @bind:event="oninput" placeholder="@Placeholder"
+              spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
+    @if (Result is { } result)
+    {
+        <div class="verify-status @StatusCss(result.Status)">@result.Message</div>
+    }
+    else if (CanVerify)
+    {
+        <div class="verify-status muted">Signature not verified</div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public DecodedToken Token { get; set; } = DecodedToken.Empty;
+
+    private string key = string.Empty;
+    private bool secretIsBase64Url;
+
+    // Verifying is relatively expensive and the page re-renders every second, so cache the last result
+    private (string Token, string Key, bool Base64Url) cachedInput;
+    private VerificationResult? cachedResult;
+
+    private bool CanVerify => Token.Kind == TokenKind.Signed && JwtSignatureVerifier.IsSupported(Token.Algorithm);
+
+    private VerificationResult? Result
+    {
+        get
+        {
+            if (!CanVerify || key.Length == 0)
+            {
+                return null;
+            }
+
+            (string, string, bool) input = (Token.Token, key, secretIsBase64Url);
+            if (input != cachedInput || cachedResult is null)
+            {
+                cachedInput = input;
+                cachedResult = JwtSignatureVerifier.Verify(Token.Token, Token.Algorithm!, Token.KeyId, key, secretIsBase64Url);
+            }
+
+            return cachedResult;
+        }
+    }
+
+    private string Prompt => Token.Kind switch
+    {
+        TokenKind.Empty or TokenKind.Invalid => "Decode a token to verify its signature.",
+        TokenKind.Encrypted => "Encrypted tokens (JWE) can't be verified here.",
+        _ when Token.IsUnsigned => "This token is unsigned (alg \"none\"), so there's nothing to verify.",
+        _ when !JwtSignatureVerifier.IsSupported(Token.Algorithm) => $"Verifying \"{Token.Algorithm ?? "unknown"}\" signatures isn't supported.",
+        _ when JwtSignatureVerifier.IsSymmetric(Token.Algorithm) => "Enter the secret used to sign the JWT:",
+        _ => "Enter the public key (PEM, certificate, JWK or JWKS):"
+    };
+
+    private string Placeholder => JwtSignatureVerifier.IsSymmetric(Token.Algorithm)
+        ? "your-256-bit-secret"
+        : "-----BEGIN PUBLIC KEY-----";
+
+    private static string StatusCss(VerificationStatus status) => status switch
+    {
+        VerificationStatus.Valid => "good",
+        VerificationStatus.Warning => "warning",
+        _ => "bad"
+    };
+}
